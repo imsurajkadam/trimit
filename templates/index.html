@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Trimmer</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .drop-zone {
+            border: 2px dashed #cbd5e0;
+            transition: all 0.3s ease;
+        }
+        .drop-zone.dragover {
+            border-color: #4299e1;
+            background-color: #ebf8ff;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold text-center mb-8 text-gray-800">Video Trimmer</h1>
+        
+        <div class="max-w-2xl mx-auto">
+            <!-- Upload Zone -->
+            <div id="dropZone" class="drop-zone rounded-lg p-8 text-center mb-8 cursor-pointer">
+                <div class="text-gray-600">
+                    <svg class="mx-auto h-12 w-12 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                    </svg>
+                    <p class="text-lg">Drag and drop your videos here</p>
+                    <p class="text-sm mt-2">or</p>
+                    <button id="browseBtn" class="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition">
+                        Browse Files
+                    </button>
+                    <input type="file" id="fileInput" class="hidden" multiple accept=".mp4,.avi,.mov,.mkv">
+                </div>
+            </div>
+
+            <!-- Video List -->
+            <div id="videoList" class="space-y-4 mb-8">
+                <!-- Videos will be added here dynamically -->
+            </div>
+
+            <!-- Duration Input -->
+            <div class="bg-white rounded-lg p-6 shadow-md mb-8">
+                <h2 class="text-xl font-semibold mb-4">Trim Duration</h2>
+                <div class="flex items-center space-x-4">
+                    <input type="number" id="duration" min="0.1" step="0.1" value="5" 
+                           class="w-32 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <span class="text-gray-600">seconds</span>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex justify-center space-x-4">
+                <button id="processBtn" class="px-6 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition">
+                    Process Videos
+                </button>
+                <button id="downloadAllBtn" class="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition">
+                    Download All
+                </button>
+                <button id="cleanupBtn" class="px-6 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition">
+                    Cleanup
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const browseBtn = document.getElementById('browseBtn');
+        const videoList = document.getElementById('videoList');
+        const duration = document.getElementById('duration');
+        const processBtn = document.getElementById('processBtn');
+        const downloadAllBtn = document.getElementById('downloadAllBtn');
+        const cleanupBtn = document.getElementById('cleanupBtn');
+
+        let videos = [];
+
+        // Drag and drop handlers
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        browseBtn.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+
+        function handleFiles(files) {
+            Array.from(files).forEach(file => {
+                if (file.type.startsWith('video/')) {
+                    uploadFile(file);
+                }
+            });
+        }
+
+        async function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    videos.push({
+                        originalName: file.name,
+                        filename: data.filename,
+                        status: 'uploaded'
+                    });
+                    updateVideoList();
+                } else {
+                    alert(data.error);
+                }
+            } catch (error) {
+                alert('Upload failed');
+                console.error(error);
+            }
+        }
+
+        function updateVideoList() {
+            videoList.innerHTML = videos.map((video, index) => `
+                <div class="bg-white rounded-lg p-4 shadow-md flex items-center justify-between">
+                    <div>
+                        <p class="font-medium">${video.originalName}</p>
+                        <p class="text-sm text-gray-500">Status: ${video.status}</p>
+                    </div>
+                    ${video.status === 'processed' ? 
+                        `<a href="/download/${video.trimmedFilename}" class="text-blue-500 hover:text-blue-700">Download</a>` : 
+                        ''}
+                </div>
+            `).join('');
+        }
+
+        processBtn.addEventListener('click', async () => {
+            const trimDuration = parseFloat(duration.value);
+            if (trimDuration <= 0) {
+                alert('Please enter a valid duration');
+                return;
+            }
+
+            for (let video of videos) {
+                if (video.status === 'uploaded') {
+                    try {
+                        const response = await fetch('/trim', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                filename: video.filename,
+                                duration: trimDuration
+                            })
+                        });
+                        const data = await response.json();
+                        
+                        if (response.ok) {
+                            video.status = 'processed';
+                            video.trimmedFilename = data.filename;
+                            updateVideoList();
+                        } else {
+                            alert(data.error);
+                        }
+                    } catch (error) {
+                        alert('Processing failed');
+                        console.error(error);
+                    }
+                }
+            }
+        });
+
+        downloadAllBtn.addEventListener('click', async () => {
+            try {
+                const response = await fetch('/download-all', {
+                    method: 'POST'
+                });
+                
+                if (response.ok) {
+                    // Create a blob from the response
+                    const blob = await response.blob();
+                    // Create a temporary link to download the file
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'trimmed_videos.zip';
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                } else {
+                    const data = await response.json();
+                    alert(data.error || 'Download failed');
+                }
+            } catch (error) {
+                alert('Download failed');
+                console.error(error);
+            }
+        });
+
+        cleanupBtn.addEventListener('click', async () => {
+            try {
+                const response = await fetch('/cleanup', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    videos = [];
+                    updateVideoList();
+                    alert('Cleanup successful');
+                } else {
+                    alert(data.error);
+                }
+            } catch (error) {
+                alert('Cleanup failed');
+                console.error(error);
+            }
+        });
+    </script>
+</body>
+</html> 
